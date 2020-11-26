@@ -1,0 +1,280 @@
+<html>
+<head>
+
+  <style>
+   @font-face {
+      font-family: "GeoSans";
+      src: url("assets/GeosansLight.ttf");
+    }
+    html{ color:#ffc; background:#000; font-family:"GeoSans"; overflow: hidden; }
+    }
+    #renderer{
+      position:fixed;
+      top:0px;
+      left:0px;
+    }
+    code{
+      color:#fff;
+      font-size:20px;
+    }
+
+    button{
+      display:block;
+      position:absolute;
+      z-index: 100;;
+    }
+  </style>
+
+</head>
+<body style="margin:0px">
+
+<button  onclick="myFunction()">Click to play sound cuz chrome autoplay policy SUCKS</button>
+
+
+<script src="three.js"                        ></script>
+<script src="lib/jquery.min.js"               ></script>
+<script src="lib/stats.min.js"                ></script>
+<script src="lib/TrackballControls.js"        ></script>
+<script src="lib/ShaderLoader.js"             ></script>
+<script src="lib/AudioController.js"          ></script>
+<script src="lib/Stream.js"                   ></script>
+<script src="lib/UserAudio.js"                ></script>
+<script src="lib/AudioBuffer.js"              ></script>
+<script src="lib/BufferedAudio.js"            ></script>
+<script type="text/javascript" src="lib/dat.gui.js"></script>
+
+
+
+<script>
+
+
+  var scene , camera , renderer, clock , controls, objectControls;
+
+  var neededToLoad = 0;
+  var numLoaded = 0;
+
+  var iPoint;
+
+  var loader = new THREE.TextureLoader();
+
+  var shaders = new ShaderLoader( 'shaders' );
+
+  //shaders.load( 'ss-curlFront'    , 'sim'    , 'simulation' );
+
+  addLoad();
+
+  shaders.load( 'fs-trace'  , 'trace' , 'fragment' );
+  shaders.load( 'vs-trace'  , 'trace' , 'vertex'   );
+
+  shaders.shaderSetLoaded = function(){
+    onLoad();
+  }
+
+  addLoad();
+  var matcap = loader.load('img/rough-aluminium.jpg',function ( texture ) {
+    onLoad();
+  });
+
+  addLoad();
+  //var normal = THREE.ImageUtils.loadTexture('img/t_n_mesh.png');
+  var normal = loader.load('img/n_water.jpg',function(){
+    onLoad();
+  });
+   
+  normal.wrapT = normal.wrapS = THREE.RepeatWrapping;
+
+
+
+
+  var uniforms = {
+
+    t_audio:  { type:"t"  , value : null },
+    dT:       { type:"f"  , value : 0             },
+    time:     { type:"f"  , value : 0             },
+    lightPos: { type:"v3" , value : null          },
+    t_matcap: { type:"t", value: matcap},
+    t_normal: { type:"t", value: normal},
+  
+    _NoiseSize:{type:"f",value:3},
+    _NoiseSpeed:{type:"f",value:2},
+    _NoiseOffset:{type:"f",value:.3},
+    _HueStart:{type:"f",value:.1},
+    _HueSize:{type:"f",value:.1},
+    _FFTStart:{type:"f",value:.1},
+    _FFTSize:{type:"f",value:.1},
+    _Saturation:{type:"f",value:.7},
+    _Lightness:{type:"f",value:1},
+
+  }
+
+  var guiData = {
+    _NoiseSize:1.2,
+    _NoiseSpeed:.8,
+    _NoiseOffset:.3,
+    _HueStart:.1,
+    _HueSize:.1,
+    _FFTStart:.1,
+    _FFTSize:.1,
+    _Saturation:.7,
+    _Lightness:2,
+  }
+
+  G = {}
+  G.v1 = new THREE.Vector3();
+  G.v2 = new THREE.Vector3();
+
+
+
+  function myFunction() {
+    audio.ctx.resume();
+    console.log("hii");
+    stream.play();
+  }
+  /*
+
+     Setting up Audio
+
+  */
+  var audio = new AudioController();
+
+  var stream = new Stream( "audio/glistenVox.mp3" , audio.ctx , audio.gain );
+
+
+  //var userAudio = new UserAudio( audio.ctx , audio.gain);
+
+  audio.mute.gain.value = 1;
+  uniforms.t_audio.value = audio.texture;
+
+  var v1 = new THREE.Vector3();
+  
+  function init(){
+
+
+
+
+      /*
+
+         Default threejs stuff!
+
+      */
+      scene = new THREE.Scene();
+
+      var ar = window.innerWidth / window.innerHeight;
+
+      camera = new THREE.PerspectiveCamera( 40, ar , .01, 100 );
+      camera.position.z = 6;
+
+      renderer = new THREE.WebGLRenderer();
+      renderer.setSize( window.innerWidth, window.innerHeight );
+      renderer.setPixelRatio( window.devicePixelRatio );
+
+      renderer.domElement.id = "renderer"
+      document.body.appendChild( renderer.domElement );
+
+
+      stats = new Stats();
+      stats.domElement.style.position = "absolute";
+      stats.domElement.style.left = "0px";
+      stats.domElement.style.bottom = "-30px";
+      stats.domElement.style.zIndex = "999";
+      document.body.appendChild( stats.domElement );
+
+
+      window.addEventListener( 'resize', onWindowResize, false );
+
+      clock = new THREE.Clock();
+
+
+
+      var geo = new THREE.IcosahedronGeometry(1 ,6 );
+      console.log(geo);
+      var mat = new THREE.MeshNormalMaterial();
+
+      var raytraceMat = new THREE.ShaderMaterial({
+        uniforms: uniforms,
+        vertexShader: shaders.vs.trace,
+        fragmentShader: shaders.fs.trace,
+      })
+
+
+      mainBody = new THREE.Mesh( geo , raytraceMat );
+      scene.add( mainBody );
+
+
+
+      AddGui();
+
+
+  }
+
+  function animate(){
+
+    requestAnimationFrame( animate );
+    uniforms.dT.value = clock.getDelta();
+    uniforms.time.value += uniforms.dT.value;
+
+    UpdateGuiInfo();
+    audio.update();
+    renderer.render( scene , camera );
+    stats.update();
+
+  }
+
+
+  function AddGui(){
+    
+    var gui = new dat.GUI();
+gui.add(guiData,'_NoiseSize',0,2);
+gui.add(guiData,'_NoiseSpeed',0,2);
+gui.add(guiData,'_NoiseOffset',0,1);
+gui.add(guiData,'_HueStart',0,1);
+gui.add(guiData,'_HueSize',0,1);
+gui.add(guiData,'_FFTStart',0,1);
+gui.add(guiData,'_FFTSize',0,1);
+gui.add(guiData,'_Saturation',0,1);
+gui.add(guiData,'_Lightness',0,1);
+  }
+
+  function UpdateGuiInfo(){
+    uniforms._NoiseSize.value = guiData._NoiseSize;
+    uniforms._NoiseSpeed.value = guiData._NoiseSpeed;
+    uniforms._NoiseOffset.value = guiData._NoiseOffset;
+    uniforms._HueStart.value = guiData._HueStart;
+    uniforms._HueSize.value = guiData._HueSize;
+    uniforms._FFTStart.value = guiData._FFTStart;
+    uniforms._FFTSize.value = guiData._FFTSize;
+    uniforms._Saturation.value = guiData._Saturation;
+    uniforms._Lightness.value = guiData._Lightness;
+  }
+
+
+  function onWindowResize() {
+
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize( window.innerWidth, window.innerHeight );
+  
+  }
+
+  function addLoad(){
+    neededToLoad ++;
+  }
+
+  function onLoad(){
+    numLoaded ++;
+    console.log( numLoaded);
+    console.log( neededToLoad);
+    if( numLoaded == neededToLoad ){
+      init();
+      animate();
+    }
+  }
+
+
+</script>
+ 
+
+
+
+</body>
+<html>
